@@ -1,10 +1,9 @@
-# Maxwell Solver
+Maxwell Solver
 ----------------
 
 Finite-difference time-domain method implemented in C.
 
-## Sources:
------------
+Sources:
 
 [1] K. S. Yee, "Numerical solution of initial boundary value problems involving
     Maxwell's equations in isotropic media," IEEE Transactions on Antennas and
