@@ -1,105 +1,137 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-typedef struct em_field {
-  double *data;             // Contiguous memory block for all arrays
-  double *e_x, *e_y, *e_z;  // Pointers to respective portions of data
-  double *h_x, *h_y, *h_z;
-  double *eps;
-  double *mu;
-  int dim_x, dim_y, dim_z;  // Dimensions of the field
-} em_field;
 
-em_field *alloc_field(int dim_x, int dim_y, int dim_z) {
-  int total_elements = dim_x * dim_y * dim_z;
-  em_field *field = (em_field *)malloc(sizeof(em_field));
-  if (!field) return NULL;
+typedef unsigned int uint;
 
-  field->dim_x = dim_x;
-  field->dim_y = dim_y;
-  field->dim_z = dim_z;
+double *field_mem;
 
-  // Allocate a single contiguous block for all arrays
-  size_t total_size = total_elements * 8 * sizeof(double);  // 8 arrays total
-  field->data = (double *)malloc(total_size);
-  if (!field->data) {
-    free(field);
-    return NULL;
-  }
+double *E_x, *E_y, *E_z;
+double *B_x, *B_y, *B_z;
+double *inv_eps;  // precomputed inverse permittivity (1/ε)
+double *inv_mu;   // precomputed inverse permeability (1/μ)
 
-  memset(field->data, 0, total_size);
+double   dt = -1;
+double   dx = -1, dy = -1, dz = -1;
+unsigned grid_dim_x = 0, grid_dim_y = 0, grid_dim_z = 0;
+double   time = 0;  // current simulation time
 
-  // Set pointers to respective portions of the data block
-  field->e_x = field->data;
-  field->e_y = field->e_x + total_elements;
-  field->e_z = field->e_y + total_elements;
-  field->h_x = field->e_z + total_elements;
-  field->h_y = field->h_x + total_elements;
-  field->h_z = field->h_y + total_elements;
-  field->eps = field->h_z + total_elements;
-  field->mu = field->eps + total_elements;
+void create_field(unsigned dim_x, unsigned dim_y, unsigned dim_z) {
+    time       = 0.0;  // Initialize simulation time
+    grid_dim_x = dim_x + 1;
+    grid_dim_y = dim_y + 1;
+    grid_dim_z = dim_z + 1;
 
-  return field;
+    unsigned total_elements = grid_dim_x * grid_dim_y * grid_dim_z;
+
+    // single contiguous memory block to be partitioned for field arrays
+    size_t total_size = total_elements * 8 * sizeof(double);
+    field_mem         = (double *) malloc(total_size);
+    if (!field_mem) {
+        fprintf(stderr, "Memory allocation failed\n");
+        exit(1);
+    }
+    memset(field_mem, 0, total_size);
+
+    // block partitioning
+    E_x     = field_mem;
+    E_y     = E_x + total_elements;
+    E_z     = E_y + total_elements;
+    B_x     = E_z + total_elements;
+    B_y     = B_x + total_elements;
+    B_z     = B_y + total_elements;
+    inv_eps = B_z + total_elements;
+    inv_mu  = inv_eps + total_elements;
 }
 
-void update_e_field(em_field *field, double dt) {
-  int nx = field->dim_x;
-  int ny = field->dim_y;
-  int nz = field->dim_z;
-  int idx, idx_xp, idx_yp, idx_zp;
-  double curl_h_x, curl_h_y, curl_h_z;
-
-  for (int i = 0; i < nx; i++) {
-    for (int j = 0; j < ny; j++) {
-      for (int k = 0; k < nz; k++) {
-        idx = i + j * nx + k * nx * ny;
-        idx_yp = i + ((j + 1) % ny) * nx + k * nx * ny;
-        idx_zp = i + j * nx + ((k + 1) % nz) * nx * ny;
-        idx_xp = ((i + 1) % nx) + j * nx + k * nx * ny;
-
-        // Calculate curl of H
-        curl_h_x = (field->h_z[idx_yp] - field->h_z[idx]) - (field->h_y[idx_zp] - field->h_y[idx]);
-
-        curl_h_y = (field->h_x[idx_zp] - field->h_x[idx]) - (field->h_z[idx_xp] - field->h_z[idx]);
-
-        curl_h_z = (field->h_y[idx_xp] - field->h_y[idx]) - (field->h_x[idx_yp] - field->h_x[idx]);
-
-        // Update E field components
-        field->e_x[idx] += dt * curl_h_x / field->eps[idx];
-        field->e_y[idx] += dt * curl_h_y / field->eps[idx];
-        field->e_z[idx] += dt * curl_h_z / field->eps[idx];
-      }
+void free_field() {
+    if (field_mem) {
+        free(field_mem);
+        field_mem = NULL;
     }
-  }
 }
 
-void update_h_field(em_field *field, double dt) {
-  int nx = field->dim_x;
-  int ny = field->dim_y;
-  int nz = field->dim_z;
-  int idx, idx_xm, idx_ym, idx_zm;
-  double curl_e_x, curl_e_y, curl_e_z;
+void update_E_field() {
+    const unsigned stride_x = grid_dim_y * grid_dim_z;
+    const unsigned stride_y = grid_dim_z;
+    const unsigned stride_z = 1;
 
-  for (int i = 0; i < nx; i++) {
-    for (int j = 0; j < ny; j++) {
-      for (int k = 0; k < nz; k++) {
-        idx = i + j * nx + k * nx * ny;
-        idx_ym = i + ((j - 1 + ny) % ny) * nx + k * nx * ny;
-        idx_zm = i + j * nx + ((k - 1 + nz) % nz) * nx * ny;
-        idx_xm = ((i - 1 + nx) % nx) + j * nx + k * nx * ny;
-
-        // Calculate curl of E
-        curl_e_x = (field->e_z[idx] - field->e_z[idx_ym]) - (field->e_y[idx] - field->e_y[idx_zm]);
-
-        curl_e_y = (field->e_x[idx] - field->e_x[idx_zm]) - (field->e_z[idx] - field->e_z[idx_xm]);
-
-        curl_e_z = (field->e_y[idx] - field->e_y[idx_xm]) - (field->e_x[idx] - field->e_x[idx_ym]);
-
-        // Update H field components
-        field->h_x[idx] -= dt * curl_e_x / field->mu[idx];
-        field->h_y[idx] -= dt * curl_e_y / field->mu[idx];
-        field->h_z[idx] -= dt * curl_e_z / field->mu[idx];
-      }
+    // first and last E field layers updated later as PEC boundary, and idx starts at E_*[1, 1, 1]
+    uint idx = stride_z + stride_x + stride_y;
+    for (int i = 1; i < grid_dim_x - 1; i++) {
+        for (int j = 1; j < grid_dim_y - 1; j++) {
+            for (int k = 1; k < grid_dim_z - 1; k++) {
+                E_x[idx] += dt * ((B_z[idx] - B_z[idx - stride_y]) / dy - (B_y[idx] - B_y[idx - stride_z]) / dz) * inv_eps[idx];
+                E_y[idx] += dt * ((B_x[idx] - B_x[idx - stride_z]) / dz - (B_z[idx] - B_z[idx - stride_x]) / dx) * inv_eps[idx];
+                E_z[idx] += dt * ((B_y[idx] - B_y[idx - stride_x]) / dx - (B_x[idx] - B_x[idx - stride_y]) / dy) * inv_eps[idx];
+                idx++;
+            }
+            idx += 2;         // skip PEC boundaries @ z = 0 and z = grid_dim_z - 1
+        }
+        idx += 2 * stride_y;  // skip PEC boundaries @ y = 0 and y = grid_dim_y - 1
     }
-  }
+}
+
+void update_B_field() {
+    const unsigned stride_x = grid_dim_y * grid_dim_z;
+    const unsigned stride_y = grid_dim_z;
+    const unsigned stride_z = 1;
+
+    uint idx = 0;
+    // rear B-field layers are buffers (-> for grid_dim_* - 1)
+    for (int i = 0; i < grid_dim_x - 1; i++) {
+        for (int j = 0; j < grid_dim_y - 1; j++) {
+            for (int k = 0; k < grid_dim_z - 1; k++) {
+                B_x[idx] -= dt * ((E_z[idx + stride_y] - E_z[idx]) / dy - (E_y[idx + stride_z] - E_y[idx]) / dz) * inv_mu[idx];
+                B_y[idx] -= dt * ((E_x[idx + stride_z] - E_x[idx]) / dz - (E_z[idx + stride_x] - E_z[idx]) / dx) * inv_mu[idx];
+                B_z[idx] -= dt * ((E_y[idx + stride_x] - E_y[idx]) / dx - (E_x[idx + stride_y] - E_x[idx]) / dy) * inv_mu[idx];
+                idx++;
+            }
+            idx++;        // skip B-field-buffer
+        }
+        idx += stride_y;  // skip B-field-buffer
+    }
+}
+
+// Initialize B field to t = -dt/2 for proper leapfrog starting point
+void initialize_leapfrog() {
+    const double   half_dt  = dt * 0.5;
+    const unsigned stride_x = grid_dim_y * grid_dim_z;
+    const unsigned stride_y = grid_dim_z;
+    const unsigned stride_z = 1;
+
+    uint idx = 0;
+    for (int i = 0; i < grid_dim_x - 1; i++) {
+        for (int j = 0; j < grid_dim_y - 1; j++) {
+            for (int k = 0; k < grid_dim_z - 1; k++) {
+                B_x[idx] -= half_dt * ((E_z[idx + stride_y] - E_z[idx]) / dy - (E_y[idx + stride_z] - E_y[idx]) / dz) * inv_mu[idx];
+                B_y[idx] -= half_dt * ((E_x[idx + stride_z] - E_x[idx]) / dz - (E_z[idx + stride_x] - E_z[idx]) / dx) * inv_mu[idx];
+                B_z[idx] -= half_dt * ((E_y[idx + stride_x] - E_y[idx]) / dx - (E_x[idx + stride_y] - E_x[idx]) / dy) * inv_mu[idx];
+                idx++;
+            }
+            idx++;        // skip B-field-buffer
+        }
+        idx += stride_y;  // skip B-field-buffer
+    }
+}
+
+void advance_EM_field() {
+    update_E_field();
+    time += dt;
+    update_B_field();
+}
+
+int main() {
+    create_field(50, 50, 50);
+
+    initialize_leapfrog();
+
+    const double end_time = 100.0;
+    while (time < end_time) {
+        advance_EM_field();
+    }
+
+    free_field();
+    return 0;
 }
