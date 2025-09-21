@@ -21,6 +21,4 @@ References:
 
 Notes:
 ------
-Developed for educational purposes at age 17. Closely mirrors the referenced
-methods with little regard for performance, extensibility, or advanced
-features (e.g., absorbing boundaries, material variation).
+Developed for educational purposes at age 17. Closely mirrors the referenced methods with little regard for performance, extensibility, or advanced features (e.g., absorbing boundaries, material variation).

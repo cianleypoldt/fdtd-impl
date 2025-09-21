@@ -4,8 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-double *field_mem      = NULL;
-int     total_elements = 0;
+const double vacuum_permeability = 4.0 * M_PI * 1e-7;  // μ₀ in H/m
+const double vacuum_permittivity = 8.85418782e-12;     // ε₀ in F/m
+
+double *field_mem  = NULL;
+int     cell_count = 0;
 
 int nx = 0, ny = 0, nz = 0;
 
@@ -27,8 +30,8 @@ void alloc_field(int x_dim, int y_dim, int z_dim) {
     ny = y_dim + 1;
     nz = z_dim + 1;
 
-    total_elements    = nx * ny * nz;
-    size_t total_size = total_elements * 8 * sizeof(double);
+    cell_count        = nx * ny * nz;
+    size_t total_size = cell_count * 8 * sizeof(double);
     field_mem         = (double *) malloc(total_size);
     if (!field_mem) {
         fprintf(stderr, "Memory allocation failed\n");
@@ -37,13 +40,19 @@ void alloc_field(int x_dim, int y_dim, int z_dim) {
     memset(field_mem, 0, total_size);
 
     Ex  = field_mem;
-    Ey  = Ex + total_elements;
-    Ez  = Ey + total_elements;
-    Bx  = Ez + total_elements;
-    By  = Bx + total_elements;
-    Bz  = By + total_elements;
-    eps = Bz + total_elements;
-    mu  = eps + total_elements;
+    Ey  = Ex + cell_count;
+    Ez  = Ey + cell_count;
+    Bx  = Ez + cell_count;
+    By  = Bx + cell_count;
+    Bz  = By + cell_count;
+    eps = Bz + cell_count;
+    mu  = eps + cell_count;
+
+    // initialize eps and mu
+    for (int i = 0; i < cell_count; i++) {
+        *(eps + i) = vacuum_permittivity;
+        *(mu + i)  = vacuum_permeability;
+    }
 
     stride_x = ny * nz;
     stride_y = nz;
@@ -57,7 +66,7 @@ void free_field() {
     }
 }
 
-void update_E_field(double time_step) {
+void update_E(double time_step) {
     // first and last E field layers updated later on as PEC boundary, index initialized at E_*[1, 1, 1]
     int idx = stride_z + stride_x + stride_y;
     for (int i = 1; i < nx - 1; i++) {
@@ -74,7 +83,7 @@ void update_E_field(double time_step) {
     }
 }
 
-void update_B_field(double time_step) {
+void update_B(double time_step) {
     // rear B field layers are buffers (-> for grid_dim_* - 1)
     int idx = 0;
     for (int i = 0; i < nx - 1; i++) {
