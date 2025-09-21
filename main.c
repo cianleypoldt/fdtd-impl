@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,28 +6,42 @@
 
 typedef unsigned int uint;
 
-double *field_mem;
+typedef struct {
+    unsigned x_min, x_max;
+    unsigned y_min, y_max;
+    unsigned z_min, z_max;
+} grid_cutout;
+
+double *field_mem = NULL;
 
 double *E_x, *E_y, *E_z;
 double *B_x, *B_y, *B_z;
 double *inv_eps;  // (1/ε)
 double *inv_mu;   // (1/μ)
 
-double   dt = -1;
-double   dx = -1, dy = -1, dz = -1;
+enum boundry_condition {
+    PML = 0,
+    PEC,
+    PMC,
+    WRAPPED
+};
+
+enum boundry_condition boundry = 0;
+
+grid_cutout regular_E_field_layers = (grid_cutout) { 0, 0, 0, 0, 0, 0 };
+grid_cutout regular_B_field_layers = (grid_cutout) { 0, 0, 0, 0, 0, 0 };
+
+double   dt = 0;
+double   dx = 0, dy = 0, dz = 0;
 unsigned grid_dim_x = 0, grid_dim_y = 0, grid_dim_z = 0;
 double   time = 0;
 
-void create_field(unsigned dim_x, unsigned dim_y, unsigned dim_z) {
-    time       = 0.0;
-    grid_dim_x = dim_x + 1;
-    grid_dim_y = dim_y + 1;
-    grid_dim_z = dim_z + 1;
+void alloc_field() {
+    assert(grid_dim_x > 0 && grid_dim_y > 0 && grid_dim_z > 0);
 
     unsigned total_elements = grid_dim_x * grid_dim_y * grid_dim_z;
-
-    size_t total_size = total_elements * 8 * sizeof(double);
-    field_mem         = (double *) malloc(total_size);
+    size_t   total_size     = total_elements * 8 * sizeof(double);
+    field_mem               = (double *) malloc(total_size);
     if (!field_mem) {
         fprintf(stderr, "Memory allocation failed\n");
         exit(1);
@@ -47,6 +62,31 @@ void free_field() {
     if (field_mem) {
         free(field_mem);
         field_mem = NULL;
+    }
+}
+
+void create_field(double size_x, double size_y, double size_z, char *boundry_by_name) {
+    grid_dim_x = 10, grid_dim_y = 10, grid_dim_z = 10;
+
+    if (strcmp(boundry_by_name, "PML") == 0) {
+        regular_B_field_layers = (grid_cutout) { 1, grid_dim_x - 2, 1, grid_dim_y - 2, 1, grid_dim_z - 2 };
+        regular_E_field_layers = (grid_cutout) { 1, grid_dim_x - 2, 1, grid_dim_y - 2, 1, grid_dim_z - 2 };
+        boundry                = PML;
+    }
+    if (strcmp(boundry_by_name, "PEC") == 0) {
+        regular_B_field_layers = (grid_cutout) { 1, grid_dim_x - 2, 1, grid_dim_y - 2, 1, grid_dim_z - 2 };
+        regular_E_field_layers = (grid_cutout) { 1, grid_dim_x - 2, 1, grid_dim_y - 2, 1, grid_dim_z - 2 };
+        boundry                = PEC;
+    }
+    if (strcmp(boundry_by_name, "PMC") == 0) {
+        regular_B_field_layers = (grid_cutout) { 1, grid_dim_x - 2, 1, grid_dim_y - 2, 1, grid_dim_z - 2 };
+        regular_E_field_layers = (grid_cutout) { 1, grid_dim_x - 2, 1, grid_dim_y - 2, 1, grid_dim_z - 2 };
+        boundry                = PMC;
+    }
+    if (strcmp(boundry_by_name, "WRAPPED") == 0) {
+        regular_B_field_layers = (grid_cutout) { 0, grid_dim_x - 1, 0, grid_dim_y - 1, 0, grid_dim_z - 1 };
+        regular_E_field_layers = (grid_cutout) { 0, grid_dim_x - 1, 0, grid_dim_y - 1, 0, grid_dim_z - 1 };
+        boundry                = WRAPPED;
     }
 }
 
@@ -121,11 +161,11 @@ void advance_EM_field() {
 }
 
 int main() {
-    create_field(50, 50, 50);
+    create_field(50, 50, 50, "PEC");
 
     initialize_leapfrog();
 
-    const double end_time = 100.0;
+    const double end_time = 0.001;
     while (time < end_time) {
         advance_EM_field();
     }
