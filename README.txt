@@ -2,18 +2,10 @@ Maxwell Solver
 ==============
 
 Finite-difference time-domain (FDTD) solver for Maxwell's equations in C.
-Educational implementation of the Yee algorithm in 3d.
 
-Features:
----------
-- Boundary conditions: PEC, PMC, PML, pereodic
-- Source types: Yet to be implemented
-
-
-Compille and run:
-    gcc main.c -o maxwell_solver -lm
+Compile and run:
+    gcc fdtd3d.c -o maxwell_solver -lm
     ./maxwell_solver
-
 
 References:
 -----------
@@ -29,6 +21,6 @@ References:
 
 Notes:
 ------
-Developed at age 17 as an educational exercise. Mirrors the referenced
-methods as closely as possible, with little regard for performance or
-extensibility.
+Developed for educational purposes at age 17. Closely mirrors the referenced
+methods with little regard for performance, extensibility, or advanced
+features (e.g., absorbing boundaries, material variation).
